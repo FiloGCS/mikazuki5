@@ -1,6 +1,6 @@
 # Mikazuki 5 Vulkan Project
 
-This project is a learning exercise for Vulkan, inspired by the legendary Mikazuki 5, Kintaro Oe's bike.
+This project is a learning exercise for Vulkan, name inspired by Kintaro Oe's bike, the legendary Mikazuki 5.
 
 ## Current Capabilities
 - ...
