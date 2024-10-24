@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <optional>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -35,7 +36,9 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
 		return VK_ERROR_EXTENSION_NOT_PRESENT;
 	}
 }
-void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator) {
+void DestroyDebugUtilsMessengerEXT(VkInstance instance,
+	VkDebugUtilsMessengerEXT debugMessenger,
+	const VkAllocationCallbacks* pAllocator) {
 	auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
 	if (func != nullptr) {
 		func(instance, debugMessenger, pAllocator);
@@ -55,9 +58,11 @@ private:
 	GLFWwindow* window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
+	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 
 	bool debugVerbose = false;
 
+	//Main Stages
 	void initWindow() {
 		glfwInit();
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); //Otherwise it will use OpenGL by default
@@ -67,6 +72,7 @@ private:
 	void initVulkan() {
 		createInstance();
 		setupDebugMessenger();
+		pickPhysicalDevice();
 	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window)) {
@@ -82,6 +88,7 @@ private:
 		glfwTerminate();
 	}
 
+	//Vulkan Instance Setup
 	//Creates our VkInstance
 	void createInstance() {
 		//If validation layers are request, make sure they area available
@@ -134,6 +141,19 @@ private:
 			throw std::runtime_error("Failed to create Vulkan Instance!");
 		}
 	}
+	//Extensions
+	std::vector<const char*> getRequiredExtensions() {
+		uint32_t glfwExtensionCount = 0;
+		const char** glfwExtensions;
+		glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+		std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+		if (enableValidationLayers) {
+			extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+		}
+		return extensions;
+	}
+	
+	//Debug and Validation
 	//This sets up the debug messenger that works somehow with the debug callback functions
 	void setupDebugMessenger() {
 		if (!enableValidationLayers) return;
@@ -154,19 +174,14 @@ private:
 		createInfo.pfnUserCallback = debugCallback;
 		createInfo.pUserData = nullptr; //Optional
 	}
-
-	//Extensions
-	std::vector<const char*> getRequiredExtensions() {
-		uint32_t glfwExtensionCount = 0;
-		const char** glfwExtensions;
-		glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-		std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
-		if (enableValidationLayers) {
-			extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-		}
-		return extensions;
+	//Callback Functions
+	static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+		VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+		void* pUserData){
+		//More info at https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Validation_layers
+		std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+		return VK_FALSE;
 	}
-
 	//Validation Layers
 	bool checkValidationLayerSupport() {
 		uint32_t layerCount;
@@ -187,16 +202,71 @@ private:
 		}
 		return true;
 	}
+	
+	//Pyshical device management
+	void pickPhysicalDevice() {
+		uint32_t deviceCount = 0;
+		vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+		if (deviceCount == 0) {
+			throw std::runtime_error("Failed to find GPUs with Vulkan support!");
+		}
+		std::vector<VkPhysicalDevice> devices(deviceCount);
+		vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+		//We're just naively going to pick the first one that's suitable
+		//More advanced:https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Physical_devices_and_queue_families
+		for (const auto& device : devices) {
+			if (isDeviceSuitable(device)) {
+				physicalDevice = device;
+				break;
+			}
+		}
+		if (physicalDevice == VK_NULL_HANDLE) {
+			throw std::runtime_error("Failed to find a suitable GPU!");
+		}
+	}
+	bool isDeviceSuitable(VkPhysicalDevice device) {
+		//Properties: Basic properties like the name, type, and supported Vulkan version
+		VkPhysicalDeviceProperties deviceProperties;
+		vkGetPhysicalDeviceProperties(device, &deviceProperties);
+		//Features: Optional features like texture compression, 64bit floats, multi viewport rendering...
+		VkPhysicalDeviceFeatures deviceFeatures;
+		vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+		//Check Queue Families
+		QueueFamilyIndices indices = findQueueFamilies(device);
+		if (!indices.isComplete()) {
+			return false;
+		}
+		return true;
+	}
 
-	//Callback Functions
-	static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-		//More info at https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Validation_layers
-		VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-		VkDebugUtilsMessageTypeFlagsEXT messageType,
-		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-		void* pUserData) {
-		std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
-		return VK_FALSE;
+	struct QueueFamilyIndices {
+		std::optional<uint32_t> graphicsFamily;
+		bool isComplete() {
+			return graphicsFamily.has_value();
+		}
+	};
+
+	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+		QueueFamilyIndices indices;
+		//Retrieve the list of queue family properties
+		uint32_t queueFamilyCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+		std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+		vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+		//For each of the queue families this device has
+		int i = 0;
+		for (const auto& queueFamily : queueFamilies) {
+			//Find at least one queue family that supports VK_QUEUE_GRAPHICS_BIT
+			if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+				indices.graphicsFamily = i;
+			}
+			//Eearly exit if we're done
+			if (indices.isComplete()) {
+				break;
+			}
+			i++;
+		}
+		return indices;
 	}
 
 };
