@@ -95,80 +95,16 @@ private:
 		createSwapChain();
 		createImageViews();
 	}
-	void createSwapChain() {
-		//We use our helper functions to pick the best values for our Swap Chain
-		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
-		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
-		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
-		VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
-		//We also have to pick how many images we would like to have in the Swap Chain.
-		//We could just pick the minimum that the implementation requires, however...
-		//Sticking to this minimum means that we may sometimes have to wait on the driver to complete
-		//	internal operations before we can acquire another image to render to.
-		//So let's request at least one more.
-		uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-		//Just make sure not to exceed the maximum (if there is a maximum).
-		uint32_t maxImageCount = swapChainSupport.capabilities.maxImageCount;
-		if (maxImageCount > 0 && imageCount > maxImageCount){
-			imageCount = maxImageCount;
-		}
-
-		//There are a lot of parameters in the createInfo for a Swapchain
-		//Vulkan says "Let me sing the song of my people" as it performs the traditional dance:
-		VkSwapchainCreateInfoKHR createInfo{};
-		createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-		createInfo.surface = surface;
-		createInfo.minImageCount = imageCount;
-		createInfo.imageFormat = surfaceFormat.format;
-		createInfo.imageColorSpace = surfaceFormat.colorSpace;
-		createInfo.imageExtent = extent;
-		createInfo.imageArrayLayers = 1;
-		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-		//TODO - Not 100% sure of how sharing mode between queue families work...
-		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
-		uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
-		if (indices.graphicsFamily != indices.presentFamily) {
-			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-			createInfo.queueFamilyIndexCount = 2;
-			createInfo.pQueueFamilyIndices = queueFamilyIndices;
-		}
-		else {
-			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-			createInfo.queueFamilyIndexCount = 0; //Optional
-			createInfo.pQueueFamilyIndices = nullptr; //Optional
-		}
-		//We can specify a certain transform to be applied to images in the Swapchain
-		//	Things like 90ºrotations, flip...
-		//To specify no transformation, just set the current transformation.
-		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
-		//Specifies if alpha channel should be used for blending with other windows. Simply ignore.
-		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-		createInfo.presentMode = presentMode;
-		//Clipping = True means we don't care about color of pixels that are obscured (for example by another window).
-		//	Unless we need to be able to read these back, enabling clipping gets better performance.
-		createInfo.clipped = VK_TRUE;
-		createInfo.oldSwapchain = VK_NULL_HANDLE;
-		
-		if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS) {
-			throw std::runtime_error("failed to create swap chain!");
-		}
-		//Store references to the swap chain images as a class member
-		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
-		swapChainImages.resize(imageCount);
-		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
-		//Also store the format and the extent, we'll need them later
-		swapChainImageFormat = surfaceFormat.format;
-		swapChainExtent = extent;
-	}
-	void createImageViews() {
-
-	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window)) {
 			glfwPollEvents();
 		}
 	}
 	void cleanup() {
+		//Unlike images, image views were explicitly created by us, so we need to clean them up
+		for (auto imageView : swapChainImageViews) {
+			vkDestroyImageView(device, imageView, nullptr);
+		}
 		vkDestroySwapchainKHR(device, swapChain, nullptr);
 		vkDestroyDevice(device, nullptr);
 		if (enableValidationLayers) {
@@ -342,6 +278,102 @@ private:
 			actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
 			actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
 			return actualExtent;
+		}
+	}
+	void createSwapChain() {
+		//We use our helper functions to pick the best values for our Swap Chain
+		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
+		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
+		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
+		VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+		//We also have to pick how many images we would like to have in the Swap Chain.
+		//We could just pick the minimum that the implementation requires, however...
+		//Sticking to this minimum means that we may sometimes have to wait on the driver to complete
+		//	internal operations before we can acquire another image to render to.
+		//So let's request at least one more.
+		uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+		//Just make sure not to exceed the maximum (if there is a maximum).
+		uint32_t maxImageCount = swapChainSupport.capabilities.maxImageCount;
+		if (maxImageCount > 0 && imageCount > maxImageCount){
+			imageCount = maxImageCount;
+		}
+
+		//There are a lot of parameters in the createInfo for a Swapchain
+		//Vulkan says "Let me sing the song of my people" as it performs the traditional dance:
+		VkSwapchainCreateInfoKHR createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+		createInfo.surface = surface;
+		createInfo.minImageCount = imageCount;
+		createInfo.imageFormat = surfaceFormat.format;
+		createInfo.imageColorSpace = surfaceFormat.colorSpace;
+		createInfo.imageExtent = extent;
+		createInfo.imageArrayLayers = 1;
+		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		//TODO - Not 100% sure of how sharing mode between queue families work...
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+		if (indices.graphicsFamily != indices.presentFamily) {
+			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+			createInfo.queueFamilyIndexCount = 2;
+			createInfo.pQueueFamilyIndices = queueFamilyIndices;
+		}
+		else {
+			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			createInfo.queueFamilyIndexCount = 0; //Optional
+			createInfo.pQueueFamilyIndices = nullptr; //Optional
+		}
+		//We can specify a certain transform to be applied to images in the Swapchain
+		//	Things like 90ºrotations, flip...
+		//To specify no transformation, just set the current transformation.
+		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
+		//Specifies if alpha channel should be used for blending with other windows. Simply ignore.
+		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+		createInfo.presentMode = presentMode;
+		//Clipping = True means we don't care about color of pixels that are obscured (for example by another window).
+		//	Unless we need to be able to read these back, enabling clipping gets better performance.
+		createInfo.clipped = VK_TRUE;
+		createInfo.oldSwapchain = VK_NULL_HANDLE;
+		
+		if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create swap chain!");
+		}
+		//Store references to the swap chain images as a class member
+		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
+		swapChainImages.resize(imageCount);
+		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
+		//Also store the format and the extent, we'll need them later
+		swapChainImageFormat = surfaceFormat.format;
+		swapChainExtent = extent;
+	}
+	void createImageViews() {
+		//Resize the list to fit all of the image views we'll be creating
+		swapChainImageViews.resize(swapChainImages.size());
+		//For each swap chain image
+		for (size_t i = 0; i < swapChainImages.size(); i++) {
+			//We do the vulkan dance
+			VkImageViewCreateInfo createInfo{};
+			createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			createInfo.image = swapChainImages[i];
+			//The viewType parameter allows you to treat images as 1D, 2D, 3D, and cubemaps
+			createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			createInfo.format = swapChainImageFormat;
+			//The components field allows swizzling of the color channels, or constant values of 0 and 1
+			createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+			createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+			//Suvresource describes what the image's purpose is and which part of the image should be accessed.
+			//	A stereographic 3D application for example would use multiple layers
+			createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			createInfo.subresourceRange.baseMipLevel = 0;
+			createInfo.subresourceRange.levelCount = 1;
+			createInfo.subresourceRange.baseArrayLayer = 0;
+			createInfo.subresourceRange.layerCount = 1;
+			//Finally create it
+			if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS) {
+				throw std::runtime_error("failed to create image views!");
+			}
+
 		}
 	}
 	
