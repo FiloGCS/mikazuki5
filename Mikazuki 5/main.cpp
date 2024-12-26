@@ -13,6 +13,9 @@
 #include <vector>
 #include <optional>
 #include <set>
+#include <cstdint> //Necessary for uint32_t
+#include <limits> //Necessary for std::numeric_limits
+#include <algorithm> // Necessary for std::clamp
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -67,6 +70,7 @@ private:
 	VkQueue graphicsQueue;
 	VkSurfaceKHR surface;
 	VkQueue presentQueue;
+	VkSwapchainKHR swapChain;
 
 	bool debugVerbose = false;
 
@@ -80,9 +84,68 @@ private:
 	void initVulkan() {
 		createInstance();
 		setupDebugMessenger();
-		createSurface(); //We create the surface before picking a Physical Device, since it might help in picking the later
+		//We create the surface before picking a Physical Device, since it might help in picking the later
+		createSurface();
 		pickPhysicalDevice();
 		createLogicalDevice();
+	}
+	void createSwapChain() {
+		//We use our helper functions to pick the best values for our Swap Chain
+		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
+		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
+		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
+		VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+		//We also have to pick how many images we would like to have in the Swap Chain.
+		//We could just pick the minimum that the implementation requires, however...
+		//Sticking to this minimum means that we may sometimes have to wait on the driver to complete
+		//	internal operations before we can acquire another image to render to.
+		//So let's request at least one more.
+		uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+		//Just make sure not to exceed the maximum (if there is a maximum).
+		uint32_t maxImageCount = swapChainSupport.capabilities.maxImageCount;
+		if (maxImageCount > 0 && imageCount > maxImageCount){
+			imageCount = maxImageCount;
+		}
+
+		//There are a lot of parameters in the createInfo for a Swapchain
+		//Vulkan says "Let me sing the song of my people" as it performs the traditional dance:
+		VkSwapchainCreateInfoKHR createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+		createInfo.surface = surface;
+		createInfo.minImageCount = imageCount;
+		createInfo.imageFormat = surfaceFormat.format;
+		createInfo.imageColorSpace = surfaceFormat.colorSpace;
+		createInfo.imageExtent = extent;
+		createInfo.imageArrayLayers = 1;
+		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		//TODO - Not 100% sure of how sharing mode between queue families work...
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+		if (indices.graphicsFamily != indices.presentFamily) {
+			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+			createInfo.queueFamilyIndexCount = 2;
+			createInfo.pQueueFamilyIndices = queueFamilyIndices;
+		}
+		else {
+			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			createInfo.queueFamilyIndexCount = 0; //Optional
+			createInfo.pQueueFamilyIndices = nullptr; //Optional
+		}
+		//We can specify a certain transform to be applied to images in the Swapchain
+		//	Things like 90ºrotations, flip...
+		//To specify no transformation, just set the current transformation.
+		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
+		//Specifies if alpha channel should be used for blending with other windows. Simply ignore.
+		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+		createInfo.presentMode = presentMode;
+		//Clipping = True means we don't care about color of pixels that are obscured (for example by another window).
+		//	Unless we need to be able to read these back, enabling clipping gets better performance.
+		createInfo.clipped = VK_TRUE;
+		createInfo.oldSwapchain = VK_NULL_HANDLE;
+		
+		if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create swap chain!");
+		}
 	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window)) {
@@ -90,6 +153,7 @@ private:
 		}
 	}
 	void cleanup() {
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
 		vkDestroyDevice(device, nullptr);
 		if (enableValidationLayers) {
 			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
@@ -219,6 +283,49 @@ private:
 	void createSurface() {
 		if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
 			throw std::runtime_error("Failed to create window surface!");
+		}
+	}
+
+	//Swap Chain
+	VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
+		for (const auto& availableFormat : availableFormats) {
+			//Look through the list for our preferred swap surface format (R8G8B8A8_SRGB)
+			if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+				return availableFormat;
+			}
+			//If our favourite combination is not available, we could use some heuristic to pick another one
+			//For now, just pick the first available
+			return availableFormats[0];
+		}
+	}
+	VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
+		for (const auto& availablePresentMode : availablePresentModes) {
+			//Just like the swap surface format, we look for our preferred mode
+			//MAILBOX is a very nice trade-off if energy usage is not a concern.
+			//If energy usage is more important (portable or mobile) you'd probably prefer FIFO
+			if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+				return availablePresentMode;
+			}
+		}
+		//FIFO Present Mode is the only that's guaranteed to be available
+		return VK_PRESENT_MODE_FIFO_KHR;
+	}
+	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
+		//The Swap Extent is the resolution of the swap chain
+		if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+			return capabilities.currentExtent;
+		}
+		else {
+			int width, height;
+			glfwGetFramebufferSize(window, &width, &height);
+			VkExtent2D actualExtent = {
+				static_cast<uint32_t>(width),
+				static_cast<uint32_t>(height)
+			};
+			//We bounnd the values of width and height between the allowed minimum and maximum
+			actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+			actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+			return actualExtent;
 		}
 	}
 	
