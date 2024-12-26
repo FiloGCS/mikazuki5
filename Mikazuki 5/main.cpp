@@ -19,6 +19,9 @@ const uint32_t HEIGHT = 600;
 const std::vector<const char*> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
 };
+const std::vector<const char*> deviceExtensions = {
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME
+};
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
 #else
@@ -252,8 +255,62 @@ private:
 		if (!indices.isComplete()) {
 			return false;
 		}
+		//Check extension support
+		bool extensionsSupported = checkDeviceExtensionSupport(device);
+		if (!extensionsSupported) {
+			return false;
+		}
+		//Check if the swap chain is adeaquate
+		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
+		//If either the format list or the presentModes list are empty, it's not adequate
+		bool swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
+		if (!swapChainAdequate) {
+			return false;
+		}
+		//If nothing triggered, this device is good to go!
 		return true;
 	}
+	bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
+
+		uint32_t extensionCount;
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+		std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+		
+		std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
+		for (const auto& extension : availableExtensions) {
+			requiredExtensions.erase(extension.extensionName);
+		}
+		return requiredExtensions.empty();
+	}
+
+	struct SwapChainSupportDetails{
+		VkSurfaceCapabilitiesKHR capabilities;
+		std::vector<VkSurfaceFormatKHR> formats;
+		std::vector<VkPresentModeKHR> presentModes;
+	};
+	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device){
+		SwapChainSupportDetails details;
+		//Retrieve surface capabilities and store them in our struct
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+		//Query for the list of supported surface formats.
+		uint32_t formatCount;
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+		if(formatCount != 0){
+			//Make sure all the formats will fit in the vector
+			details.formats.resize(formatCount);
+			vkGetPhysicalDeviceSurfaceFormatsKHR(device,surface,&formatCount, details.formats.data());
+		}
+		//Query the supported presentation modes
+		uint32_t presentModeCount;
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+		if(presentModeCount != 0){
+			details.presentModes.resize(presentModeCount);
+			vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
+		}
+		return details;
+	}
+	
 	struct QueueFamilyIndices {
 		std::optional<uint32_t> graphicsFamily;
 		std::optional<uint32_t> presentFamily;
@@ -315,7 +372,8 @@ private:
 		createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 		createInfo.pQueueCreateInfos = queueCreateInfos.data();
 		createInfo.pEnabledFeatures = &deviceFeatures;
-		createInfo.enabledExtensionCount = 0;
+		createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+		createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 		//This going to be ignored in later versions anyway, but let's create it for compatibility
 		if (enableValidationLayers) {
 			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
