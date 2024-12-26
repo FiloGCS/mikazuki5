@@ -94,6 +94,7 @@ private:
 		createLogicalDevice();
 		createSwapChain();
 		createImageViews();
+		createGraphicsPipeline();
 	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window)) {
@@ -377,6 +378,11 @@ private:
 		}
 	}
 	
+	//Graphics Pipeline
+	void createGraphicsPipeline() {
+		 
+	}
+
 	//Pyshical device management
 	void pickPhysicalDevice() {
 		uint32_t deviceCount = 0;
