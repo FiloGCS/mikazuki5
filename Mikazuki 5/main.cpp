@@ -71,6 +71,9 @@ private:
 	VkSurfaceKHR surface;
 	VkQueue presentQueue;
 	VkSwapchainKHR swapChain;
+	std::vector<VkImage> swapChainImages;
+	VkFormat swapChainImageFormat;
+	VkExtent2D swapChainExtent;
 
 	bool debugVerbose = false;
 
@@ -146,6 +149,13 @@ private:
 		if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create swap chain!");
 		}
+		//Store references to the swap chain images as a class member
+		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
+		swapChainImages.resize(imageCount);
+		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
+		//Also store the format and the extent, we'll need them later
+		swapChainImageFormat = surfaceFormat.format;
+		swapChainExtent = extent;
 	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window)) {
