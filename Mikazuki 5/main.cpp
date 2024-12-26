@@ -74,6 +74,7 @@ private:
 	std::vector<VkImage> swapChainImages;
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
+	std::vector<VkImageView> swapChainImageViews;
 
 	bool debugVerbose = false;
 
@@ -91,6 +92,8 @@ private:
 		createSurface();
 		pickPhysicalDevice();
 		createLogicalDevice();
+		createSwapChain();
+		createImageViews();
 	}
 	void createSwapChain() {
 		//We use our helper functions to pick the best values for our Swap Chain
@@ -156,6 +159,9 @@ private:
 		//Also store the format and the extent, we'll need them later
 		swapChainImageFormat = surfaceFormat.format;
 		swapChainExtent = extent;
+	}
+	void createImageViews() {
+
 	}
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window)) {
